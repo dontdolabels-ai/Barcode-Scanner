@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1e40af">
+    <title>Delivery Scanner</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, sans-serif; background: #0f172a; color: white; min-height: 100vh; }
+        .header { background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); padding: 1.5rem 1rem; text-align: center; }
+        .header h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+        .container { padding: 1rem; max-width: 600px; margin: 0 auto; }
+        .scanner-section { background: #1e293b; border-radius: 1rem; padding: 1rem; margin-bottom: 1rem; }
+        #reader { border-radius: 0.5rem; overflow: hidden; width: 100%; margin: 0 auto; }
+        .btn { flex: 1; min-width: 120px; padding: 0.875rem 1rem; border: none; border-radius: 0.5rem; font-weight: 600; cursor: pointer; }
+        .btn-primary { background: #3b82f6; color: white; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-success { background: #10b981; color: white; }
+        .btn:disabled { opacity: 0.5; }
+        .scanner-controls { display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
+        .upload-box { margin-top: 1rem; padding: 1.25rem; background: #7c3aed; border-radius: 0.75rem; text-align: center; }
+        .upload-box input[type="file"] { display: none; }
+        .upload-box label { display: inline-block; padding: 1rem 2rem; background: white; color: #7c3aed; border-radius: 0.5rem; font-weight: 700; cursor: pointer; margin-top: 0.75rem; }
+        .manual-entry { margin-top: 1rem; }
+        .manual-entry input { width: 100%; padding: 0.875rem; border: 2px solid #334155; border-radius: 0.5rem; background: #0f172a; color: white; font-size: 1rem; margin-bottom: 0.5rem; }
+        .status-message { margin-top: 1rem; padding: 1rem; border-radius: 0.5rem; font-weight: 600; text-align: center; display: none; }
+        .status-success { background: #065f46; color: #d1fae5; }
+        .status-error { background: #991b1b; color: #fecaca; }
+        .status-warning { background: #92400e; color: #fef3c7; }
+        .status-info { background: #1e40af; color: #dbeafe; }
+        .deliveries-section { background: #1e293b; border-radius: 1rem; padding: 1rem; margin-bottom: 1rem; }
+        .deliveries-section h2 { font-size: 1.25rem; margin-bottom: 1rem; color: #60a5fa; }
+        .delivery-card { background: #0f172a; border-radius: 0.75rem; padding: 1rem; margin-bottom: 1rem; border: 2px solid #334155; }
+        .delivery-card.complete { border-color: #10b981; }
+        .delivery-card.incomplete { border-color: #f59e0b; }
+        .delivery-location { font-size: 1.5rem; font-weight: 800; color: #3b82f6; }
+        .delivery-date { font-size: 0.875rem; color: #94a3b8; }
+        .progress-bar { width: 100%; height: 8px; background: #334155; border-radius: 4px; overflow: hidden; margin: 0.75rem 0; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #10b981); transition: width 0.3s; }
+        .items-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(40px, 1fr)); gap: 0.5rem; margin-top: 0.75rem; }
+        .item-badge { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 0.5rem; font-weight: 700; font-size: 0.875rem; border: 2px solid; }
+        .item-badge.scanned { background: #065f46; border-color: #10b981; color: #d1fae5; }
+        .item-badge.missing { background: #334155; border-color: #475569; color: #64748b; }
+        .empty-state { text-align: center; padding: 3rem 1rem; color: #64748b; }
+    </style>
+</head>
+<body>
+    <div class="header"><h1>📦 Delivery Scanner</h1></div>
+    <div class="container">
+        <div class="scanner-section">
+            <div class="upload-box">
+                <div style="font-size: 1.125rem; font-weight: 700;">📸 Take a Photo</div>
+                <label for="fileInput">📷 Choose Photo<input type="file" id="fileInput" accept="image/*" capture="environment"></label>
+            </div>
+            <div style="text-align: center; padding: 1rem; color: #64748b;">- OR -</div>
+            <div id="reader"></div>
+            <div class="scanner-controls">
+                <button class="btn btn-primary" id="startBtn">Start Scanner</button>
+                <button class="btn btn-danger" id="stopBtn" disabled>Stop Scanner</button>
+            </div>
+            <div style="text-align: center; padding: 1rem; color: #64748b;">- OR -</div>
+            <div class="manual-entry">
+                <input type="text" id="manualInput" placeholder="Type: BH 01/01/25 STD 1/8" />
+                <button class="btn btn-success" id="manualBtn">Add Manual Entry</button>
+            </div>
+            <div id="statusMessage" class="status-message"></div>
+        </div>
+        <div class="deliveries-section"><h2>Active Deliveries</h2><div id="deliveriesList"></div></div>
+    </div>
+    <script>
+        let html5QrCode = null, isScanning = false, deliveries = {};
+        
+        function parseBarcode(text) {
+            const match = text.trim().match(/^([A-Z]{2,3})\s+(\d{2}\/\d{2}\/\d{2})\s+(STD|CAKE)\s+(\d+)\/(\d+)$/);
+            return match ? { location: match[1], date: match[2], type: match[3], current: parseInt(match[4]), total: parseInt(match[5]) } : null;
+        }
+        
+        function addScannedItem(data) {
+            const key = `${data.location}_${data.date}_${data.type}`;
+            if (!deliveries[key]) deliveries[key] = { ...data, scanned: new Set(), timestamp: Date.now() };
+            if (deliveries[key].scanned.has(data.current)) return showStatus(`Already scanned ${data.current}/${data.total}`, 'warning');
+            deliveries[key].scanned.add(data.current);
+            if (data.total > deliveries[key].total) deliveries[key].total = data.total;
+            renderDeliveries();
+            const done = deliveries[key].scanned.size === deliveries[key].total;
+            showStatus(done ? `✓ ${data.location} COMPLETE!` : `Scanned ${data.location} ${data.current}/${data.total}`, done ? 'success' : 'info');
+            if ('vibrate' in navigator) navigator.vibrate(done ? [100,50,100] : 100);
+        }
+        
+        function showStatus(msg, type = 'info') {
+            const el = document.getElementById('statusMessage');
+            el.className = `status-message status-${type}`;
+            el.textContent = msg;
+            el.style.display = 'block';
+            setTimeout(() => el.style.display = 'none', 3000);
+        }
+        
+        async function startScanner() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                stream.getTracks().forEach(t => t.stop());
+                if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+                await html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 150 } }, 
+                    (txt) => { const d = parseBarcode(txt); if (d) addScannedItem(d); }, () => {});
+                isScanning = true;
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                showStatus('Scanner active', 'info');
+            } catch (err) {
+                showStatus('Camera error. Use photo upload.', 'error');
+            }
+        }
+        
+        async function stopScanner() {
+            if (html5QrCode && isScanning) {
+                await html5QrCode.stop();
+                isScanning = false;
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+            }
+        }
+        
+        document.getElementById('fileInput').onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            showStatus('Processing...', 'info');
+            try {
+                if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+                const result = await html5QrCode.scanFile(file, true);
+                const data = parseBarcode(result);
+                data ? addScannedItem(data) : showStatus('Could not read barcode', 'error');
+            } catch { showStatus('Scan failed. Try manual entry.', 'error'); }
+            e.target.value = '';
+        };
+        
+        document.getElementById('manualBtn').onclick = () => {
+            const txt = document.getElementById('manualInput').value.trim();
+            if (!txt) return showStatus('Enter a barcode', 'error');
+            const data = parseBarcode(txt);
+            if (data) { addScannedItem(data); document.getElementById('manualInput').value = ''; }
+            else showStatus('Invalid format', 'error');
+        };
+        
+        document.getElementById('manualInput').onkeypress = (e) => { if (e.key === 'Enter') document.getElementById('manualBtn').click(); };
+        document.getElementById('startBtn').onclick = startScanner;
+        document.getElementById('stopBtn').onclick = stopScanner;
+        
+        function renderDeliveries() {
+            const el = document.getElementById('deliveriesList');
+            if (Object.keys(deliveries).length === 0) return el.innerHTML = '<div class="empty-state">No deliveries scanned yet</div>';
+            el.innerHTML = Object.entries(deliveries).sort((a,b) => b[1].timestamp - a[1].timestamp).map(([k, d]) => {
+                const prog = (d.scanned.size / d.total) * 100, done = d.scanned.size === d.total;
+                const missing = Array.from({length: d.total}, (_,i) => i+1).filter(n => !d.scanned.has(n));
+                const items = Array.from({length: d.total}, (_,i) => {
+                    const n = i+1; return `<div class="item-badge ${d.scanned.has(n)?'scanned':'missing'}">${n}</div>`;
+                }).join('');
+                return `<div class="delivery-card ${done?'complete':'incomplete'}">
+                    <div class="delivery-location">${d.location}</div>
+                    <div class="delivery-date">${d.date} - ${d.type}</div>
+                    <div style="font-size: 0.875rem; color: #94a3b8; margin: 0.5rem 0;">${d.scanned.size} of ${d.total} scanned</div>
+                    <div class="progress-bar"><div class="progress-fill" style="width: ${prog}%"></div></div>
+                    ${missing.length > 0 ? `<div style="color: #f59e0b; font-size: 0.875rem;">⚠️ Missing: ${missing.join(', ')}</div>` : ''}
+                    <div class="items-grid">${items}</div>
+                    <button class="btn btn-danger" onclick="deliveries['${k}']=undefined;delete deliveries['${k}'];renderDeliveries()" style="width:100%; margin-top:1rem;">Clear</button>
+                </div>`;
+            }).join('');
+        }
+        renderDeliveries();
+    </script>
+</body>
+</html>
