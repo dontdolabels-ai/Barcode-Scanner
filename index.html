@@ -132,13 +132,13 @@
         }
 
         function isConsistentDetection(code) {
-            if (detectionBuffer.length < 2) return false;
+            if (detectionBuffer.length < 1) return false;
             const recentMatches = detectionBuffer.filter(d => 
                 d.code === code && 
-                Date.now() - d.timestamp < 1000 &&
-                d.quality > 0.65
+                Date.now() - d.timestamp < 2000 &&
+                d.quality > 0.5
             );
-            return recentMatches.length >= 2;
+            return recentMatches.length >= 1;
         }
         
         async function startScanner() {
@@ -159,26 +159,30 @@
                         type: "LiveStream",
                         target: document.querySelector('#scanner'),
                         constraints: {
-                            width: { min: 640, ideal: 1920 },
-                            height: { min: 480, ideal: 1080 },
+                            width: { min: 640, ideal: 1280 },
+                            height: { min: 480, ideal: 720 },
                             facingMode: "environment"
-                        }
+                        },
+                        area: {
+                            top: "25%",
+                            right: "5%",
+                            left: "5%",
+                            bottom: "25%"
+                        },
+                        singleChannel: false
                     },
                     locator: {
-                        patchSize: "large",
+                        patchSize: "x-large",
                         halfSample: false
                     },
-                    numOfWorkers: navigator.hardwareConcurrency || 4,
+                    numOfWorkers: 4,
                     frequency: 5,
                     decoder: {
-                        readers: [
-                            "code_128_reader",
-                            "ean_reader",
-                            "ean_8_reader",
-                            "code_39_reader",
-                            "upc_reader",
-                            "upc_e_reader"
-                        ]
+                        readers: [{
+                            format: "code_128_reader",
+                            config: {}
+                        }],
+                        multiple: false
                     },
                     locate: true
                 }, (err) => {
@@ -200,6 +204,8 @@
                         const code = data.codeResult.code;
                         const quality = calculateQuality(data.codeResult);
                         
+                        console.log('Detected:', code, 'Quality:', quality.toFixed(2));
+                        
                         detectionBuffer.push({
                             code: code,
                             quality: quality,
@@ -213,6 +219,8 @@
                             if (parsed) {
                                 addScannedItem(parsed);
                                 detectionBuffer = [];
+                            } else {
+                                showStatus(`Scanned: ${code} (format not recognized)`, 'warning');
                             }
                         }
                     });
