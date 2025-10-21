@@ -119,7 +119,7 @@
             el.className = `status-message status-${type}`;
             el.textContent = msg;
             el.style.display = 'block';
-            setTimeout(() => el.style.display = 'none', 3000);
+            setTimeout(() => el.style.display = 'none', 5000);
         }
         
         function calculateQuality(result) {
@@ -132,13 +132,8 @@
         }
 
         function isConsistentDetection(code) {
-            if (detectionBuffer.length < 1) return false;
-            const recentMatches = detectionBuffer.filter(d => 
-                d.code === code && 
-                Date.now() - d.timestamp < 2000 &&
-                d.quality > 0.5
-            );
-            return recentMatches.length >= 1;
+            // Accept immediately on first detection for testing
+            return detectionBuffer.length >= 1;
         }
         
         async function startScanner() {
@@ -204,7 +199,9 @@
                         const code = data.codeResult.code;
                         const quality = calculateQuality(data.codeResult);
                         
-                        console.log('Detected:', code, 'Quality:', quality.toFixed(2));
+                        // ALWAYS show what we detected
+                        showStatus(`📊 DETECTED: "${code}" (Quality: ${(quality * 100).toFixed(0)}%)`, 'info');
+                        console.log('RAW SCAN:', code, 'Quality:', quality);
                         
                         detectionBuffer.push({
                             code: code,
@@ -220,7 +217,8 @@
                                 addScannedItem(parsed);
                                 detectionBuffer = [];
                             } else {
-                                showStatus(`Scanned: ${code} (format not recognized)`, 'warning');
+                                showStatus(`❌ Format Error: "${code}" doesn't match "BH 21/10/25 STD 1/8"`, 'warning');
+                                console.log('Parse failed for:', code);
                             }
                         }
                     });
